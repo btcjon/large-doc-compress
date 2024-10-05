@@ -1,30 +1,23 @@
-# Build stage
-FROM python:3.12-slim AS builder
+# Build stage for Python
+FROM python:3.12-slim AS python-builder
 
 WORKDIR /app
 
-# Install build dependencies and UV
-RUN apt-get update && apt-get install -y gcc curl && \
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+# Install build dependencies
+RUN apt-get update && apt-get install -y gcc curl
 
 COPY requirements.txt ./
-RUN uv pip install --system -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # Node.js build stage for React frontend
 FROM node:18 as frontend-builder
 
 WORKDIR /app/frontend
 
-# Copy package.json and package-lock.json (if available)
 COPY frontend/package*.json ./
-
-# Install dependencies
 RUN npm install
 
-# Copy frontend source files
 COPY frontend/ ./
-
-# Build the React app
 RUN npm run build
 
 # Final stage
@@ -32,8 +25,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy installed packages from builder stage
-COPY --from=builder /usr/local /usr/local
+# Copy installed packages from python-builder stage
+COPY --from=python-builder /usr/local /usr/local
 
 # Copy application files
 COPY backend/ ./backend/
