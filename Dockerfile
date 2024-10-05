@@ -37,6 +37,9 @@ COPY --from=frontend-builder /app/frontend/build /app/frontend/build
 RUN useradd -m appuser
 USER appuser
 
+# Set Python path
+ENV PYTHONPATH=/app
+
 # Expose the port the app runs on
 EXPOSE 8030
 

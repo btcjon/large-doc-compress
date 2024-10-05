@@ -9,7 +9,7 @@ import aiohttp
 import logging
 from typing import Any
 from dotenv import load_dotenv
-from ai_condense_text import condense_text
+from .ai_condense_text import condense_text
 
 # Load environment variables
 load_dotenv()
