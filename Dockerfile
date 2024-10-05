@@ -1,7 +1,17 @@
-# Build stage for React frontend
+# Build stage
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y gcc
+
+COPY requirements.txt .
+RUN pip install --user -r requirements.txt
+
+# Node.js build stage for React frontend
 FROM node:18 as frontend-builder
 
-# Set working directory
 WORKDIR /app/frontend
 
 # Copy package.json and package-lock.json (if available)
@@ -21,21 +31,22 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy Python requirements file
+# Copy installed packages from builder stage
+COPY --from=builder /root/.local /root/.local
+
+# Copy application files
+COPY backend/ ./backend/
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy backend files
-COPY backend/ ./backend/
-
 # Copy built React app
-COPY --from=frontend-builder /app/frontend/build /app/frontend/build
+COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
 # Create a non-root user and switch to it
 RUN useradd -m appuser
 USER appuser
+
+# Make sure scripts in .local are usable:
+ENV PATH=/home/appuser/.local/bin:$PATH
 
 # Set Python path
 ENV PYTHONPATH=/app
