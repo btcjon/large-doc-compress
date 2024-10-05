@@ -3,11 +3,12 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y gcc
+# Install build dependencies and UV
+RUN apt-get update && apt-get install -y gcc curl && \
+    curl -LsSf https://astral.sh/uv/install.sh | sh
 
-COPY requirements.txt .
-RUN pip install --user -r requirements.txt
+COPY requirements.txt ./
+RUN uv pip install --system -r requirements.txt
 
 # Node.js build stage for React frontend
 FROM node:18 as frontend-builder
@@ -32,11 +33,11 @@ FROM python:3.12-slim
 WORKDIR /app
 
 # Copy installed packages from builder stage
-COPY --from=builder /root/.local /root/.local
+COPY --from=builder /usr/local /usr/local
 
 # Copy application files
 COPY backend/ ./backend/
-COPY requirements.txt .
+COPY requirements.txt ./
 
 # Copy built React app
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
@@ -44,9 +45,6 @@ COPY --from=frontend-builder /app/frontend/build ./frontend/build
 # Create a non-root user and switch to it
 RUN useradd -m appuser
 USER appuser
-
-# Make sure scripts in .local are usable:
-ENV PATH=/home/appuser/.local/bin:$PATH
 
 # Set Python path
 ENV PYTHONPATH=/app
