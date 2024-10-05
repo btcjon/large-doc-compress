@@ -1,7 +1,37 @@
 import aiohttp
 import asyncio
+import re
+import logging
+import os
+from typing import List
+from dotenv import load_dotenv
+import aiofiles
 
-# ... (other imports remain the same)
+# Load environment variables
+load_dotenv()
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Get OpenRouter API key from .env
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+if not OPENROUTER_API_KEY:
+    raise ValueError("Please set the OPENROUTER_API_KEY in your .env file")
+
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+def split_into_chunks(text: str, max_chunk_size: int = 4000) -> List[str]:
+    chunks = []
+    current_chunk = ""
+    for sentence in re.split(r'(?<=[.!?])\s+', text):
+        if len(current_chunk) + len(sentence) < max_chunk_size:
+            current_chunk += sentence + " "
+        else:
+            chunks.append(current_chunk.strip())
+            current_chunk = sentence + " "
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+    return chunks
 
 async def summarize_chunk(chunk: str) -> str:
     headers = {

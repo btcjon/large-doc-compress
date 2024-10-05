@@ -36,7 +36,8 @@ async def upload_file(file: UploadFile = File(...)):
     temp_file_path = ""
     output_file = ""
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_file:
+        suffix = os.path.splitext(file.filename)[1] if file.filename else '.txt'
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             content = await file.read()
             temp_file.write(content)
             temp_file_path = temp_file.name
