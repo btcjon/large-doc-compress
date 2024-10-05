@@ -1,25 +1,3 @@
-# Build stage
-FROM python:3.12-slim AS builder
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --user -r requirements.txt
-
-# Runtime stage
-FROM python:3.12-slim
-
-WORKDIR /app
-
-# Copy installed packages from builder stage
-COPY --from=builder /root/.local /root/.local
-
-# Copy application files
-COPY . .
-
-# Install Node.js and npm
-RUN apt-get update && apt-get install -y nodejs npm && rm -rf /var/lib/apt/lists/*
-
 # Build stage for React frontend
 FROM node:18 as frontend-builder
 
@@ -41,24 +19,23 @@ RUN npm run build
 # Final stage
 FROM python:3.12-slim
 
-# ... (rest of the Dockerfile remains the same)
+WORKDIR /app
+
+# Copy Python requirements file
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy backend files
+COPY backend/ ./backend/
 
 # Copy built React app
 COPY --from=frontend-builder /app/frontend/build /app/frontend/build
 
-# Install and build React app
-WORKDIR /app/frontend
-RUN npm install && npm run build
-
-# Move back to the app directory
-WORKDIR /app
-
 # Create a non-root user and switch to it
 RUN useradd -m appuser
 USER appuser
-
-# Make sure scripts in .local are usable:
-ENV PATH=/root/.local/bin:$PATH
 
 # Expose the port the app runs on
 EXPOSE 8030
