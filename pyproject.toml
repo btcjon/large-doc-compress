@@ -3,6 +3,17 @@ name = "ai-text-condenser"
 version = "0.1.0"
 description = "An AI-powered text condensing application"
 requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "python-multipart",
+    "aiofiles",
+    "python-dotenv",
+    "redis",
+    "fastapi-cache2",
+    "aiohttp",
+    "pydantic",
+]
 
 [tool.uv]
 python = "3.12"
