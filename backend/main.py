@@ -7,7 +7,7 @@ import aiofiles
 import tempfile
 import aiohttp
 import logging
-from typing import Any
+from typing import Any, Dict
 from dotenv import load_dotenv
 from .ai_condense_text import condense_text
 from redis.asyncio import Redis
@@ -115,6 +115,9 @@ async def root():
 async def favicon():
     return FileResponse('path/to/your/favicon.ico')  # Update this path
 
+# Add this new dictionary to store job statuses
+job_statuses: Dict[str, str] = {}
+
 @app.post("/upload")
 async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     contents = await file.read()
@@ -123,19 +126,44 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
         temp_file_path = temp_file.name
 
     output_file = f"{temp_file_path}_condensed.txt"
+    job_id = os.path.basename(output_file)
     
-    background_tasks.add_task(condense_text, temp_file_path, output_file)
+    job_statuses[job_id] = "processing"
+    background_tasks.add_task(process_file, temp_file_path, output_file, job_id)
     
-    return {"status": "Processing started", "job_id": output_file}
+    return {"status": "Processing started", "job_id": job_id}
+
+async def process_file(input_file: str, output_file: str, job_id: str):
+    try:
+        await condense_text(input_file, output_file)
+        job_statuses[job_id] = "completed"
+    except Exception as e:
+        logging.error(f"Error processing file: {str(e)}")
+        job_statuses[job_id] = "error"
+    finally:
+        os.unlink(input_file)
 
 @app.get("/status/{job_id}")
 async def get_status(job_id: str):
-    if os.path.exists(job_id):
-        async with aiofiles.open(job_id, mode='r') as f:
-            condensed_content = await f.read()
-        os.unlink(job_id)
-        return {"status": "completed", "condensed_content": condensed_content}
-    return {"status": "processing"}
+    if job_id not in job_statuses:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    status = job_statuses[job_id]
+    if status == "completed":
+        output_file = f"/tmp/{job_id}"
+        if os.path.exists(output_file):
+            async with aiofiles.open(output_file, mode='r') as f:
+                condensed_content = await f.read()
+            os.unlink(output_file)
+            del job_statuses[job_id]
+            return {"status": "completed", "condensed_content": condensed_content}
+        else:
+            return {"status": "error", "message": "Output file not found"}
+    elif status == "error":
+        del job_statuses[job_id]
+        return {"status": "error", "message": "Error during processing"}
+    else:
+        return {"status": "processing"}
 
 @app.post("/process-url", response_model=ProcessedResponse)
 @cache(expire=3600)

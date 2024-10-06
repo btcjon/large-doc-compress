@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import useSWR from 'swr';
 
 const fetcher = (url, options) => fetch(url, options).then((res) => res.json());
@@ -6,8 +6,11 @@ const fetcher = (url, options) => fetch(url, options).then((res) => res.json());
 function App() {
   const [url, setUrl] = useState('');
   const [file, setFile] = useState(null);
+  const [jobId, setJobId] = useState(null);
+  const [condensedText, setCondensedText] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const { data, error } = useSWR(
+  const { data: urlData, error: urlError } = useSWR(
     url ? [`http://localhost:8030/process-url`, url] : null,
     ([url, body]) =>
       fetcher(url, {
@@ -16,6 +19,33 @@ function App() {
         body: JSON.stringify({ url: body }),
       })
   );
+
+  useEffect(() => {
+    let interval;
+    if (jobId) {
+      setIsProcessing(true);
+      interval = setInterval(async () => {
+        try {
+          const response = await fetch(`http://localhost:8030/status/${jobId}`);
+          const result = await response.json();
+          if (result.status === 'completed') {
+            setCondensedText(result.condensed_content);
+            setIsProcessing(false);
+            setJobId(null);
+            clearInterval(interval);
+          } else if (result.status === 'error') {
+            setIsProcessing(false);
+            setJobId(null);
+            clearInterval(interval);
+            alert('Error processing file');
+          }
+        } catch (error) {
+          console.error('Error checking status:', error);
+        }
+      }, 3000); // Poll every 3 seconds
+    }
+    return () => clearInterval(interval);
+  }, [jobId]);
 
   const handleUrlSubmit = (e) => {
     e.preventDefault();
@@ -35,11 +65,19 @@ function App() {
         body: formData,
       });
       const result = await response.json();
-      console.log(result);
-      // Handle the result as needed
+      setJobId(result.job_id);
     } catch (error) {
       console.error('Error:', error);
     }
+  };
+
+  const handleDownload = () => {
+    const element = document.createElement("a");
+    const file = new Blob([condensedText], {type: 'text/plain'});
+    element.href = URL.createObjectURL(file);
+    element.download = "condensed_text.txt";
+    document.body.appendChild(element);
+    element.click();
   };
 
   return (
@@ -98,16 +136,28 @@ function App() {
               </div>
             </div>
 
-            {error && (
-              <div className="mt-4 text-red-600">
-                Error: {error.message}
+            {isProcessing && (
+              <div className="mt-4 text-blue-600">
+                Processing... Please wait.
               </div>
             )}
 
-            {data && (
+            {urlError && (
+              <div className="mt-4 text-red-600">
+                Error: {urlError.message}
+              </div>
+            )}
+
+            {(urlData || condensedText) && (
               <div className="mt-4">
                 <h2 className="text-xl font-semibold">Condensed Text:</h2>
-                <p className="mt-2 text-gray-600">{data.condensed_text}</p>
+                <p className="mt-2 text-gray-600">{urlData?.condensed_text || condensedText}</p>
+                <button
+                  onClick={handleDownload}
+                  className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                >
+                  Download Condensed File
+                </button>
               </div>
             )}
           </div>
