@@ -1,8 +1,8 @@
 import os
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 import aiofiles
 import tempfile
 import aiohttp
@@ -10,6 +10,10 @@ import logging
 from typing import Any
 from dotenv import load_dotenv
 from .ai_condense_text import condense_text
+from redis.asyncio import Redis
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.decorator import cache
 
 # Load environment variables
 load_dotenv()
@@ -28,8 +32,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+redis = Redis(host="localhost", port=6379, db=0, decode_responses=False)
+
+@app.on_event("startup")
+async def startup():
+    redis_client = await redis
+    FastAPICache.init(RedisBackend(redis_client), prefix="fastapi-cache")
+
 class UrlRequest(BaseModel):
-    url: str
+    url: HttpUrl
+
+class ProcessedResponse(BaseModel):
+    condensed_text: str
 
 @app.get("/")
 async def root():
@@ -102,44 +116,35 @@ async def favicon():
     return FileResponse('path/to/your/favicon.ico')  # Update this path
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    try:
-        contents = await file.read()
-        # Process the file contents here using your condense_text function
-        # For this example, we'll use a temporary file to store the contents
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as temp_file:
-            temp_file.write(contents)
-            temp_file_path = temp_file.name
+async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    contents = await file.read()
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as temp_file:
+        temp_file.write(contents)
+        temp_file_path = temp_file.name
 
-        output_file = f"{temp_file_path}_condensed.txt"
-        
-        # Assuming condense_text is an async function
-        await condense_text(temp_file_path, output_file)
-        
-        # Read the condensed content
-        async with aiofiles.open(output_file, mode='r') as f:
+    output_file = f"{temp_file_path}_condensed.txt"
+    
+    background_tasks.add_task(condense_text, temp_file_path, output_file)
+    
+    return {"status": "Processing started", "job_id": output_file}
+
+@app.get("/status/{job_id}")
+async def get_status(job_id: str):
+    if os.path.exists(job_id):
+        async with aiofiles.open(job_id, mode='r') as f:
             condensed_content = await f.read()
+        os.unlink(job_id)
+        return {"status": "completed", "condensed_content": condensed_content}
+    return {"status": "processing"}
 
-        # Clean up temporary files
-        os.unlink(temp_file_path)
-        os.unlink(output_file)
-
-        return {
-            "filename": file.filename,
-            "message": "File processed successfully",
-            "condensed_content": condensed_content
-        }
-    except Exception as e:
-        logging.error(f"Error processing uploaded file: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
-
-@app.post("/process-url")
+@app.post("/process-url", response_model=ProcessedResponse)
+@cache(expire=3600)
 async def process_url(url_request: UrlRequest):
     temp_file_path = ""
     output_file = ""
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url_request.url) as response:
+            async with session.get(str(url_request.url)) as response:
                 response.raise_for_status()
                 content = await response.text()
 
@@ -153,7 +158,7 @@ async def process_url(url_request: UrlRequest):
         async with aiofiles.open(output_file, mode='r') as f:
             condensed_content = await f.read()
 
-        return {"condensed_text": condensed_content}
+        return ProcessedResponse(condensed_text=condensed_content)
     except aiohttp.ClientError as e:
         logging.error(f"Error fetching URL: {str(e)}")
         raise HTTPException(status_code=400, detail="Error fetching URL")

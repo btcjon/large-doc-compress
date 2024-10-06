@@ -74,3 +74,5 @@ uvicorn==0.31.0
     # via ai-text-condenser (pyproject.toml)
 yarl==1.13.1
     # via aiohttp
+redis>=4.2.0
+fastapi-cache2[redis]
