@@ -1,6 +1,6 @@
 import os
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import aiofiles
@@ -30,6 +30,14 @@ app.add_middleware(
 
 class UrlRequest(BaseModel):
     url: str
+
+@app.get("/")
+async def root():
+    return HTMLResponse(content="<h1>Welcome to AI Text Condenser</h1>", status_code=200)
+
+@app.get('/favicon.ico', include_in_schema=False)
+async def favicon():
+    return FileResponse('path/to/your/favicon.ico')  # Update this path
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
@@ -97,4 +105,5 @@ async def log_requests(request: Any, call_next: Any) -> Any:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8030)))
+    port = int(os.getenv("PORT", 8030))
+    uvicorn.run(app, host="0.0.0.0", port=port)
