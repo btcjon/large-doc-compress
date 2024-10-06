@@ -33,9 +33,69 @@ class UrlRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    with open("index.html", "r") as f:
-        content = f.read()
-    return HTMLResponse(content=content)
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>AI Text Condenser</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                background-color: #1a1a1a;
+                color: #ffffff;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                margin: 0;
+            }
+            .container {
+                background-color: #2a2a2a;
+                padding: 2rem;
+                border-radius: 8px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                text-align: center;
+            }
+            h1 {
+                margin-bottom: 2rem;
+            }
+            .upload-form {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+            .file-input {
+                margin-bottom: 1rem;
+            }
+            .submit-button {
+                background-color: #4CAF50;
+                border: none;
+                color: white;
+                padding: 10px 20px;
+                text-align: center;
+                text-decoration: none;
+                display: inline-block;
+                font-size: 16px;
+                margin: 4px 2px;
+                cursor: pointer;
+                border-radius: 4px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Welcome to AI Text Condenser</h1>
+            <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+                <input type="file" name="file" accept=".txt,.pdf,.doc,.docx" class="file-input">
+                <button type="submit" class="submit-button">Upload and Process</button>
+            </form>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content, status_code=200)
 
 @app.get('/favicon.ico', include_in_schema=False)
 async def favicon():
@@ -43,36 +103,35 @@ async def favicon():
 
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
-    temp_file_path = ""
-    output_file = ""
     try:
-        # Create a temporary file to store the uploaded content
-        suffix = os.path.splitext(file.filename)[1] if file.filename else '.txt'
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-            content = await file.read()
-            temp_file.write(content)
+        contents = await file.read()
+        # Process the file contents here using your condense_text function
+        # For this example, we'll use a temporary file to store the contents
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as temp_file:
+            temp_file.write(contents)
             temp_file_path = temp_file.name
 
-        # Process the file using condense_text function
         output_file = f"{temp_file_path}_condensed.txt"
+        
+        # Assuming condense_text is an async function
         await condense_text(temp_file_path, output_file)
-
-        # Read the processed content
+        
+        # Read the condensed content
         async with aiofiles.open(output_file, mode='r') as f:
             condensed_content = await f.read()
 
-        # Return the condensed content
-        return {"condensed_text": condensed_content}
+        # Clean up temporary files
+        os.unlink(temp_file_path)
+        os.unlink(output_file)
 
+        return {
+            "filename": file.filename,
+            "message": "File processed successfully",
+            "condensed_content": condensed_content
+        }
     except Exception as e:
         logging.error(f"Error processing uploaded file: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error processing file")
-    finally:
-        # Clean up temporary files
-        if temp_file_path and os.path.exists(temp_file_path):
-            os.unlink(temp_file_path)
-        if output_file and os.path.exists(output_file):
-            os.unlink(output_file)
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
 @app.post("/process-url")
 async def process_url(url_request: UrlRequest):
