@@ -107,10 +107,6 @@ async def root():
     <body>
         <div class="container">
             <h1>Welcome to AI Text Condenser</h1>
-            <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
-                <input type="file" name="file" accept=".txt,.pdf,.doc,.docx" class="file-input">
-                <button type="submit" class="submit-button">Upload and Process</button>
-            </form>
         </div>
     </body>
     </html>
