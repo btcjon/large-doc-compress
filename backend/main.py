@@ -15,6 +15,8 @@ from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
 import time
+import sys
+import subprocess
 
 # Load environment variables
 load_dotenv()
@@ -127,22 +129,26 @@ OUTPUT_FILE_TTL = 3600  # seconds
 
 @app.post("/upload")
 async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
-    contents = await file.read()
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as temp_file:
-        temp_file.write(contents)
-        temp_file_path = temp_file.name
+    try:
+        contents = await file.read()
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.txt') as temp_file:
+            temp_file.write(contents)
+            temp_file_path = temp_file.name
 
-    output_file = f"{temp_file_path}_condensed.txt"
-    job_id = os.path.basename(output_file)
-    
-    job_statuses[job_id] = {
-        "status": "processing",
-        "created_at": time.time()
-    }
-    background_tasks.add_task(process_file, temp_file_path, output_file, job_id)
-    
-    logging.info(f"File upload received. Job ID: {job_id}")
-    return {"status": "Processing started", "job_id": job_id}
+        output_file = f"{temp_file_path}_condensed.txt"
+        job_id = os.path.basename(output_file)
+        
+        job_statuses[job_id] = {
+            "status": "processing",
+            "created_at": time.time()
+        }
+        background_tasks.add_task(process_file, temp_file_path, output_file, job_id)
+        
+        logging.info(f"File upload received. Job ID: {job_id}")
+        return {"status": "Processing started", "job_id": job_id}
+    except Exception as e:
+        logging.error(f"Error in upload_file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 async def process_file(input_file: str, output_file: str, job_id: str):
     try:
@@ -235,11 +241,20 @@ async def process_url(url_request: UrlRequest):
 @app.middleware("http")
 async def log_requests(request: Any, call_next: Any) -> Any:
     logging.info(f"Request: {request.method} {request.url}")
+    logging.info(f"Headers: {request.headers}")
     response = await call_next(request)
     logging.info(f"Response status: {response.status_code}")
     return response
 
+def ensure_uv_packages():
+    try:
+        subprocess.check_call([sys.executable, "-m", "uv", "pip", "sync", "requirements.txt"])
+    except subprocess.CalledProcessError:
+        print("Failed to sync packages with uv. Please run 'uv pip sync requirements.txt' manually.")
+        sys.exit(1)
+
 if __name__ == "__main__":
+    ensure_uv_packages()
     import uvicorn
     port = int(os.getenv("PORT", 8030))
     logging.info(f"Starting server on port {port}")

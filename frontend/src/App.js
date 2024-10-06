@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { ClipLoader } from 'react-spinners';
 
+const API_URL = 'https://rkcoog4s88cwgg4kk0csgk4c.aifunnel.chat'; // Update this to your actual backend URL
+
 function App() {
   const [file, setFile] = useState(null);
   const [jobId, setJobId] = useState(null);
@@ -15,7 +17,7 @@ function App() {
       console.log("Polling for job status with jobId:", jobId);
       interval = setInterval(async () => {
         try {
-          const response = await axios.get(`http://localhost:8030/status/${jobId}`);
+          const response = await axios.get(`${API_URL}/status/${jobId}`);
           const result = response.data;
           console.log("Status check result:", result);
           if (result.status === 'completed') {
@@ -30,7 +32,7 @@ function App() {
         } catch (error) {
           console.error('Error checking status:', error);
           setIsProcessing(false);
-          setError('Network error while checking status. Please try again.');
+          setError(`Network error while checking status: ${error.message}`);
           clearInterval(interval);
         }
       }, 5000); // Poll every 5 seconds
@@ -53,16 +55,17 @@ function App() {
     setError(null);
 
     try {
-      const response = await axios.post('http://localhost:8030/upload', formData, {
+      const response = await axios.post(`${API_URL}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
       });
+      console.log('Upload response:', response.data);
       setJobId(response.data.job_id);
     } catch (error) {
       console.error('Error uploading file:', error);
       setIsProcessing(false);
-      setError('Error uploading file. Please try again.');
+      setError(`Error uploading file: ${error.message}`);
     }
   };
 
