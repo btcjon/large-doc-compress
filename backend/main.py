@@ -29,7 +29,7 @@ app = FastAPI()
 # Get allowed origins from environment variable
 ALLOWED_ORIGINS: List[str] = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
 
-# Update CORS middleware
+# Update the CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -165,11 +165,14 @@ async def process_file(input_file: str, output_file: str, job_id: str):
 async def get_status(job_id: str, background_tasks: BackgroundTasks):
     logging.info(f"Received status check request for job_id: {job_id}")
     if job_id not in job_statuses:
+        logging.warning(f"Job not found: {job_id}")
         raise HTTPException(status_code=404, detail="Job not found")
     
     job_info = job_statuses[job_id]
     status = job_info["status"]
     output_file = f"/tmp/{job_id}"
+    
+    logging.info(f"Job status: {status}")
     
     if status == "completed":
         if os.path.exists(output_file):
@@ -238,12 +241,13 @@ async def process_url(url_request: UrlRequest):
         if output_file and os.path.exists(output_file):
             os.unlink(output_file)
 
+# Add this function to print CORS debug information
 @app.middleware("http")
-async def log_requests(request: Any, call_next: Any) -> Any:
-    logging.info(f"Request: {request.method} {request.url}")
-    logging.info(f"Headers: {request.headers}")
+async def debug_cors(request, call_next):
+    logging.info(f"Request origin: {request.headers.get('origin')}")
+    logging.info(f"Allowed origins: {ALLOWED_ORIGINS}")
     response = await call_next(request)
-    logging.info(f"Response status: {response.status_code}")
+    logging.info(f"CORS headers: {response.headers.get('access-control-allow-origin')}")
     return response
 
 def ensure_uv_packages():

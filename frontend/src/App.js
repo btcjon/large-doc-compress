@@ -10,6 +10,7 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [condensedText, setCondensedText] = useState('');
   const [error, setError] = useState(null);
+  const [statusMessage, setStatusMessage] = useState('');
 
   useEffect(() => {
     let interval;
@@ -17,9 +18,12 @@ function App() {
       console.log("Polling for job status with jobId:", jobId);
       interval = setInterval(async () => {
         try {
+          console.log(`Sending status request to ${API_URL}/status/${jobId}`);
           const response = await axios.get(`${API_URL}/status/${jobId}`);
+          console.log("Full status response:", response);
           const result = response.data;
           console.log("Status check result:", result);
+          setStatusMessage(`Current status: ${result.status}`);
           if (result.status === 'completed') {
             setCondensedText(result.condensed_content);
             setIsProcessing(false);
@@ -53,8 +57,10 @@ function App() {
 
     setIsProcessing(true);
     setError(null);
+    setStatusMessage('Uploading file...');
 
     try {
+      console.log(`Sending upload request to ${API_URL}/upload`);
       const response = await axios.post(`${API_URL}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -62,6 +68,7 @@ function App() {
       });
       console.log('Upload response:', response.data);
       setJobId(response.data.job_id);
+      setStatusMessage(`File uploaded. Job ID: ${response.data.job_id}`);
     } catch (error) {
       console.error('Error uploading file:', error);
       setIsProcessing(false);
@@ -79,6 +86,7 @@ function App() {
         </button>
       </form>
       {error && <p className="error">{error}</p>}
+      {statusMessage && <p>{statusMessage}</p>}
       {isProcessing && (
         <div className="loading-container">
           <ClipLoader color="#36D7B7" loading={isProcessing} size={50} />
