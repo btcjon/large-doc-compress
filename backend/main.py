@@ -33,7 +33,9 @@ class UrlRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return HTMLResponse(content="<h1>Welcome to AI Text Condenser</h1>", status_code=200)
+    with open("index.html", "r") as f:
+        content = f.read()
+    return HTMLResponse(content=content)
 
 @app.get('/favicon.ico', include_in_schema=False)
 async def favicon():
@@ -44,20 +46,29 @@ async def upload_file(file: UploadFile = File(...)):
     temp_file_path = ""
     output_file = ""
     try:
+        # Create a temporary file to store the uploaded content
         suffix = os.path.splitext(file.filename)[1] if file.filename else '.txt'
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             content = await file.read()
             temp_file.write(content)
             temp_file_path = temp_file.name
 
+        # Process the file using condense_text function
         output_file = f"{temp_file_path}_condensed.txt"
         await condense_text(temp_file_path, output_file)
 
-        return FileResponse(output_file, media_type='text/plain', filename="condensed_text.txt")
+        # Read the processed content
+        async with aiofiles.open(output_file, mode='r') as f:
+            condensed_content = await f.read()
+
+        # Return the condensed content
+        return {"condensed_text": condensed_content}
+
     except Exception as e:
         logging.error(f"Error processing uploaded file: {str(e)}")
         raise HTTPException(status_code=500, detail="Error processing file")
     finally:
+        # Clean up temporary files
         if temp_file_path and os.path.exists(temp_file_path):
             os.unlink(temp_file_path)
         if output_file and os.path.exists(output_file):
