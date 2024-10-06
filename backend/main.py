@@ -7,13 +7,14 @@ import aiofiles
 import tempfile
 import aiohttp
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 from dotenv import load_dotenv
 from .ai_condense_text import condense_text
 from redis.asyncio import Redis
 from fastapi_cache import FastAPICache
 from fastapi_cache.backends.redis import RedisBackend
 from fastapi_cache.decorator import cache
+import time
 
 # Load environment variables
 load_dotenv()
@@ -23,10 +24,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 app = FastAPI()
 
-# Add CORS middleware
+# Get allowed origins from environment variable
+ALLOWED_ORIGINS: List[str] = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+
+# Update CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("FRONTEND_URL", "http://localhost:3000")],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -115,8 +119,11 @@ async def root():
 async def favicon():
     return FileResponse('path/to/your/favicon.ico')  # Update this path
 
-# Add this new dictionary to store job statuses
-job_statuses: Dict[str, str] = {}
+# Add this new dictionary to store job statuses and creation times
+job_statuses: Dict[str, Dict[str, Any]] = {}
+
+# Set the TTL for output files (e.g., 1 hour)
+OUTPUT_FILE_TTL = 3600  # seconds
 
 @app.post("/upload")
 async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
@@ -128,42 +135,68 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
     output_file = f"{temp_file_path}_condensed.txt"
     job_id = os.path.basename(output_file)
     
-    job_statuses[job_id] = "processing"
+    job_statuses[job_id] = {
+        "status": "processing",
+        "created_at": time.time()
+    }
     background_tasks.add_task(process_file, temp_file_path, output_file, job_id)
     
+    logging.info(f"File upload received. Job ID: {job_id}")
     return {"status": "Processing started", "job_id": job_id}
 
 async def process_file(input_file: str, output_file: str, job_id: str):
     try:
         await condense_text(input_file, output_file)
-        job_statuses[job_id] = "completed"
+        job_statuses[job_id]["status"] = "completed"
+        logging.info(f"File processing completed for job ID: {job_id}")
     except Exception as e:
-        logging.error(f"Error processing file: {str(e)}")
-        job_statuses[job_id] = "error"
+        logging.error(f"Error processing file for job ID {job_id}: {str(e)}")
+        job_statuses[job_id]["status"] = "error"
     finally:
         os.unlink(input_file)
 
 @app.get("/status/{job_id}")
-async def get_status(job_id: str):
+async def get_status(job_id: str, background_tasks: BackgroundTasks):
+    logging.info(f"Received status check request for job_id: {job_id}")
     if job_id not in job_statuses:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    status = job_statuses[job_id]
+    job_info = job_statuses[job_id]
+    status = job_info["status"]
+    output_file = f"/tmp/{job_id}"
+    
     if status == "completed":
-        output_file = f"/tmp/{job_id}"
         if os.path.exists(output_file):
-            async with aiofiles.open(output_file, mode='r') as f:
-                condensed_content = await f.read()
-            os.unlink(output_file)
-            del job_statuses[job_id]
-            return {"status": "completed", "condensed_content": condensed_content}
+            try:
+                async with aiofiles.open(output_file, mode='r') as f:
+                    condensed_content = await f.read()
+                logging.info(f"Returning completed status and content for job ID: {job_id}")
+                
+                # Check if the file has exceeded its TTL
+                if time.time() - job_info["created_at"] > OUTPUT_FILE_TTL:
+                    background_tasks.add_task(cleanup_job, job_id, output_file)
+                
+                return {"status": "completed", "condensed_content": condensed_content}
+            except Exception as e:
+                logging.error(f"Error reading output file for job ID {job_id}: {str(e)}")
+                return {"status": "error", "message": "Error reading output file"}
         else:
+            logging.error(f"Output file not found for completed job ID: {job_id}")
             return {"status": "error", "message": "Output file not found"}
     elif status == "error":
-        del job_statuses[job_id]
+        logging.error(f"Returning error status for job ID: {job_id}")
         return {"status": "error", "message": "Error during processing"}
     else:
+        logging.info(f"Returning processing status for job ID: {job_id}")
         return {"status": "processing"}
+
+async def cleanup_job(job_id: str, output_file: str):
+    try:
+        os.unlink(output_file)
+        del job_statuses[job_id]
+        logging.info(f"Cleaned up job {job_id} and removed output file")
+    except Exception as e:
+        logging.error(f"Error cleaning up job {job_id}: {str(e)}")
 
 @app.post("/process-url", response_model=ProcessedResponse)
 @cache(expire=3600)
@@ -209,4 +242,6 @@ async def log_requests(request: Any, call_next: Any) -> Any:
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8030))
+    logging.info(f"Starting server on port {port}")
+    logging.info(f"Allowed origins: {ALLOWED_ORIGINS}")
     uvicorn.run(app, host="0.0.0.0", port=port)
